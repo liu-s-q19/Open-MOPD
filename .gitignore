@@ -1,8 +1,11 @@
 trash/
 workdir/
 results/
+/data/
+/runs/
 evals/source_data/
 evals/benchmark_assets/
+/evals/data/
 /third_party/
 evals/**/third_party/
 !training/verl/verl/third_party/
@@ -12,18 +15,24 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
 .DS_Store
 .env
 .env.*
 *.log
 log/
+logs/
+wandb/
+swanlab/
 experiments/runtime_data/
 training/outputs/
 
 
 temp_files/
-
-experiments/20260527_021546
 
 .cursor/
 .memory*

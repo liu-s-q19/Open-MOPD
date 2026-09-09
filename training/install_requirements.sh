@@ -7,15 +7,24 @@ export PYTHONUSERBASE
 export PATH="${PYTHONUSERBASE}/bin:${PATH}"
 PIP_BIN=("${PYTHON_BIN}" -m pip)
 
-"${PIP_BIN[@]}" install --user swanlab math-verify matplotlib duckdb
+"${PIP_BIN[@]}" install --user \
+  swanlab==0.7.20 math-verify matplotlib duckdb \
+  'nltk>=3.8' 'langdetect>=1.0.9' 'immutabledict>=2.0.0' \
+  emoji jsonlines syllapy
 
 pushd verl
 "${PIP_BIN[@]}" install --user -e .
 popd
 
-"${PIP_BIN[@]}" install --user ray==2.55.1
-"${PIP_BIN[@]}" install --user transformers==4.57.6
-"${PIP_BIN[@]}" install --user protobuf==3.20.3
+# Keep the shared environment's core stack intact by default. Set this flag
+# only when reproducing the release environment in an isolated environment.
+if [[ "${OPEN_MOPD_INSTALL_CORE_PINS:-0}" == 1 ]]; then
+  "${PIP_BIN[@]}" install --user ray==2.55.1
+  "${PIP_BIN[@]}" install --user transformers==4.57.6
+  "${PIP_BIN[@]}" install --user protobuf==3.20.3
+else
+  echo "[install_requirements] keeping shared core versions (set OPEN_MOPD_INSTALL_CORE_PINS=1 to pin release versions)"
+fi
 
 if [ -f requirements-if-rl.txt ]; then
   "${PIP_BIN[@]}" install --user -r requirements-if-rl.txt
