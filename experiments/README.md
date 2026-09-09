@@ -31,5 +31,5 @@ experiments/
 
 ```bash
 bash -n scripts/local/*.sh eval.sh
-PYTHONPATH=. pytest -q experiments/tests/test_local_shell_entrypoints.py
+PYTHONPATH=training/verl:. pytest -q experiments/tests/test_local_shell_entrypoints.py
 ```

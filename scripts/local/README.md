@@ -36,3 +36,8 @@ Environment variables mirror the option names (`MODEL_PATH`, `TRAIN_FILE`,
 `TORCHRUN_BIN`). For teachers, use `REWARD_MODEL_PATH` for OPD or a
 comma-separated `TEACHER_MODEL_PATHS` plus `TEACHER_DOMAINS` for MT-OPD.
 Additional trainer overrides may be passed after `--`.
+
+Every launcher prepends this repository's `training/verl` directory to
+`PYTHONPATH` and prints the effective value with the generated command. Any
+existing `PYTHONPATH` entries are preserved after the repository path, so a
+different project's local `verl` is not selected accidentally.

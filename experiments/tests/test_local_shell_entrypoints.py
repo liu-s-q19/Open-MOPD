@@ -84,6 +84,45 @@ def test_local_launchers_print_commands_without_running(tmp_path: Path) -> None:
     assert "remote_submit" not in result.stdout
 
 
+def test_local_launchers_print_repo_verl_pythonpath(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    teacher = tmp_path / "teacher"
+    train = tmp_path / "train.parquet"
+    val = tmp_path / "val.parquet"
+    model.mkdir()
+    teacher.mkdir()
+    train.touch()
+    val.touch()
+    previous_verl = tmp_path / "previous-verl"
+    env = {"PYTHONPATH": str(previous_verl)}
+
+    result = _run(
+        "mt_opd",
+        "--model",
+        str(model),
+        "--train",
+        str(train),
+        "--val",
+        str(val),
+        "--output",
+        str(tmp_path / "output"),
+        "--python",
+        "/bin/echo",
+        "--teacher",
+        str(teacher),
+        "--teacher",
+        str(teacher),
+        "--domains",
+        "math,code",
+        "--dry-run",
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"{ROOT / 'training' / 'verl'}" in result.stdout
+    assert str(previous_verl) in result.stdout
+
+
 def test_run_mode_rejects_remote_uri(tmp_path: Path) -> None:
     model = tmp_path / "model"
     model.mkdir()

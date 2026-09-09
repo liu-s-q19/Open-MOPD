@@ -168,9 +168,9 @@ local_scope_output() {
 
 local_export_runtime() {
     [[ -d "$LOCAL_TRAINING_DIR" ]] || local_die "training directory not found: $LOCAL_TRAINING_DIR"
-    if [[ ":${PYTHONPATH:-}:" != *":${LOCAL_VERL_DIR}:"* ]]; then
-        export PYTHONPATH="${LOCAL_VERL_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
-    fi
+    [[ -d "$LOCAL_VERL_DIR" ]] || local_die "verl directory not found: $LOCAL_VERL_DIR"
+    LOCAL_VERL_DIR="$(cd "$LOCAL_VERL_DIR" && pwd)"
+    export PYTHONPATH="${LOCAL_VERL_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
     export PYTHONUNBUFFERED=1
     export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 }
@@ -218,7 +218,7 @@ local_validate_common() {
 }
 
 local_print_command() {
-    printf '[local]'
+    printf '[local] PYTHONPATH=%q' "${PYTHONPATH:-}"
     printf ' %q' "$@"
     printf '\n'
 }
