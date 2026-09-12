@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-OUT_DIR="${1:-${ROOT_DIR}/runs/local/sft_mix}"
+OUT_DIR="${1:-${ROOT_DIR}/outputs/local/sft_mix}"
 LOG_PATH="${2:-${OUT_DIR}.log}"
 MATH_SOURCE="${MATH_SOURCE:?set MATH_SOURCE to a local parquet path}"
 CODE_SOURCE="${CODE_SOURCE:?set CODE_SOURCE to a local directory or parquet path}"

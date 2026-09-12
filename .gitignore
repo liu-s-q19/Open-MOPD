@@ -3,6 +3,8 @@ workdir/
 results/
 /data/
 /runs/
+/outputs/
+/tensorboard_log/
 evals/source_data/
 evals/benchmark_assets/
 /evals/data/
