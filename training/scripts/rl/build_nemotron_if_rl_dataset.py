@@ -50,9 +50,15 @@ def iter_jsonl(path: Path, max_rows: int | None) -> Iterable[dict]:
             yield json.loads(line)
 
 
-def normalize_kwargs(kwargs: object) -> str:
+def normalize_kwargs(kwargs: object, instruction_id: str | None = None) -> str:
     if kwargs is None:
         return "null"
+    if instruction_id == "count:count_increment_word" and isinstance(kwargs, dict):
+        kwargs = dict(kwargs)
+        for key in ("keyword1", "keyword2"):
+            value = kwargs.get(key)
+            if isinstance(value, list) and len(value) == 1:
+                kwargs[key] = value[0]
     return json.dumps(kwargs, ensure_ascii=False, sort_keys=True)
 
 
@@ -81,7 +87,10 @@ def build_record(obj: dict) -> dict:
             "sample_id": int(obj["id"]),
             "raw_prompt": prompt,
             "instruction_id_list": normalized_instruction_ids,
-            "instruction_kwargs_json": [normalize_kwargs(item) for item in kwargs_list],
+            "instruction_kwargs_json": [
+                normalize_kwargs(item, instruction_id)
+                for instruction_id, item in zip(normalized_instruction_ids, kwargs_list, strict=True)
+            ],
             "dataset": str(obj.get("dataset", "")),
             "agent_name": str(agent_ref.get("name", "")),
             "family": classify_family(prompt),
