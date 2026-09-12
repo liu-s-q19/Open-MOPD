@@ -1884,29 +1884,42 @@ class RewardModelWorker(Worker, DistProfilerExtension):
             raise NotImplementedError(f"Unknown strategy: {config.strategy}")
         return reward_module
 
-    def _compute_entropy_safe(self, logits, chunk_size=4096):
+    def _compute_entropy_safe(self, logits, chunk_size=256):
         import torch.nn.functional as F
         # logits: [..., vocab_size]
         original_shape = logits.shape
         vocab_size = original_shape[-1]
-        
-        # Flatten to [-1, vocab_size]
-        logits_flat = logits.view(-1, vocab_size)
-        
-        entropy_list = []
-        for i in range(0, logits_flat.size(0), chunk_size):
-            chunk = logits_flat[i : i + chunk_size]
-            # using log_softmax is more numerically stable
-            log_probs = F.log_softmax(chunk, dim=-1)
-            probs = torch.exp(log_probs)
-            # Entropy = -sum(p * log(p))
-            entropy = -torch.sum(probs * log_probs, dim=-1)
-            entropy_list.append(entropy)
-            
-        entropy_flat = torch.cat(entropy_list, dim=0)
-        
-        # Reshape back to original shape minus vocab dim
-        return entropy_flat.view(original_shape[:-1])
+
+        # Process one leading-dimension slice at a time.  A response slice
+        # from the model output is often strided in its batch dimension;
+        # flattening the whole tensor with reshape can otherwise make a large
+        # hidden contiguous copy.  Each slice retains contiguous rows in the
+        # vocabulary dimension and only needs a small local reshape.
+        if logits.dim() <= 2:
+            # Packed remove-padding logits are commonly already 2-D.  Keep
+            # them as one slice so this path does not launch one Python loop
+            # per token.
+            logits_slices = (logits,)
+        else:
+            logits_slices = logits.unbind(dim=0)
+
+        entropy_slices = []
+        for logits_slice in logits_slices:
+            logits_slice_flat = logits_slice.reshape(-1, vocab_size)
+            entropy_chunks = []
+            for i in range(0, logits_slice_flat.size(0), chunk_size):
+                chunk = logits_slice_flat[i : i + chunk_size]
+                # log_softmax is numerically stable.  Reuse the probability
+                # buffer for the product to avoid a third vocab-sized tensor.
+                log_probs = F.log_softmax(chunk, dim=-1)
+                probs = torch.exp(log_probs)
+                probs.mul_(log_probs)
+                entropy_chunks.append(-torch.sum(probs, dim=-1))
+            entropy_slices.append(torch.cat(entropy_chunks, dim=0))
+
+        # Restore all leading dimensions, including the batch dimension.
+        entropy_flat = torch.cat(entropy_slices, dim=0)
+        return entropy_flat.reshape(original_shape[:-1])
 
     def _compute_teacher_top_k_log_probs(
         self,
@@ -2383,12 +2396,12 @@ class RewardModelWorker(Worker, DistProfilerExtension):
                                 top_p_intersec_p=top_p_intersec_p,
                             )
                             
-                            teacher_on_student_log_probs = flat_on_student_log_probs.view(original_shape)
-                            teacher_valid_counts = flat_counts.view(original_shape[:-1])
-                            teacher_overlap_mask = flat_overlap_mask.view(original_shape) # (Batch, Seq, K)
-                            teacher_top_k_ids = flat_teacher_top_k_ids.view(original_shape[0], original_shape[1], top_k)
-                            teacher_top_k_log_probs = flat_teacher_top_k_log_probs.view(original_shape[0], original_shape[1], top_k)
-                            teacher_in_student_mask = flat_teacher_in_student.view(original_shape[0], original_shape[1], top_k)
+                            teacher_on_student_log_probs = flat_on_student_log_probs.reshape(original_shape)
+                            teacher_valid_counts = flat_counts.reshape(original_shape[:-1])
+                            teacher_overlap_mask = flat_overlap_mask.reshape(original_shape) # (Batch, Seq, K)
+                            teacher_top_k_ids = flat_teacher_top_k_ids.reshape(original_shape[0], original_shape[1], top_k)
+                            teacher_top_k_log_probs = flat_teacher_top_k_log_probs.reshape(original_shape[0], original_shape[1], top_k)
+                            teacher_in_student_mask = flat_teacher_in_student.reshape(original_shape[0], original_shape[1], top_k)
                             
                         else:
                             teacher_on_student_log_probs = torch.gather(rm_logits_resp, dim=-1, index=student_top_k_ids)

@@ -12,10 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 # magic numbers that ensure we are using the same LoRA adapter during the rollout and training process
 VLLM_LORA_INT_ID = 123
 VLLM_LORA_NAME = "123"
 VLLM_LORA_PATH = "simon_lora_path"
+
+
+def _resolve_validation_max_tokens(val_kwargs: Any, response_length: int) -> int:
+    """Resolve validation generation length without allowing a null override.
+
+    SamplingConfig.max_tokens defaults to None. A mapping get with a default
+    does not use that default when the key exists with value None, which can
+    make each vLLM worker pad to its local maximum output length. Those
+    worker-local shapes cannot be concatenated by DataProto.
+    """
+    if hasattr(val_kwargs, "get"):
+        max_tokens = val_kwargs.get("max_tokens")
+    else:
+        max_tokens = getattr(val_kwargs, "max_tokens", None)
+    return int(response_length if max_tokens is None else max_tokens)
 
 
 def get_vllm_max_lora_rank(lora_rank: int):
