@@ -18,7 +18,7 @@ local_init() {
     LOCAL_MODEL_PATH="${MODEL_PATH:-${LOCAL_REPO_ROOT}/model}"
     LOCAL_TRAIN_FILE="${TRAIN_FILE:-${LOCAL_REPO_ROOT}/data/train.parquet}"
     LOCAL_VAL_FILE="${VAL_FILE:-${LOCAL_REPO_ROOT}/data/val.parquet}"
-    LOCAL_OUTPUT_DIR="${OUTPUT_DIR:-${LOCAL_REPO_ROOT}/runs/local}"
+    LOCAL_OUTPUT_DIR="${OUTPUT_DIR:-${LOCAL_REPO_ROOT}/outputs/local}"
     LOCAL_CHECKPOINT_DIR="${CHECKPOINT_DIR:-${LOCAL_OUTPUT_DIR}/checkpoints}"
     LOCAL_OUTPUT_EXPLICIT=0
     LOCAL_CHECKPOINT_EXPLICIT=0
@@ -159,7 +159,7 @@ local_parse_common() {
 local_scope_output() {
     local kind="$1"
     if [[ "$LOCAL_OUTPUT_EXPLICIT" == 0 ]]; then
-        LOCAL_OUTPUT_DIR="${LOCAL_REPO_ROOT}/runs/local/${kind}"
+        LOCAL_OUTPUT_DIR="${LOCAL_REPO_ROOT}/outputs/local/${kind}"
         if [[ "$LOCAL_CHECKPOINT_EXPLICIT" == 0 ]]; then
             LOCAL_CHECKPOINT_DIR="${LOCAL_OUTPUT_DIR}/checkpoints"
         fi
