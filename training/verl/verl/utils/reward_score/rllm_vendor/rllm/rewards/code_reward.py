@@ -559,6 +559,11 @@ class RewardCodeFn:
         elif dataset_name == "leetcode":
             is_correct, test_details = leetcode_check_correctness(tests, model_code)
         elif dataset_name in ["livecodebench", "codeforces", "primeintellect"]:
+            # Some Open-MOPD validation parquets store Codeforces tests in the
+            # same {inputs: [...], outputs: [...]} shape as Taco/Apps, while
+            # the LCB runner expects a list of {input, output} records.
+            if isinstance(tests, dict) and "inputs" in tests and "outputs" in tests:
+                tests = taco_to_lcb_format(tests)
             is_correct, test_details = lcb_check_correctness_v2(
                 tests,
                 model_code,

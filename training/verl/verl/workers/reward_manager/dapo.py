@@ -117,7 +117,10 @@ class DAPORewardManager(AbstractRewardManager):
 
             reward = score
 
-            if self.overlong_buffer_cfg.enable:
+            # The overlong penalty is optional. GRPO/IF configurations may not
+            # define overlong_buffer_cfg at all, in which case the reward
+            # manager must behave as a plain rule-based reward manager.
+            if self.overlong_buffer_cfg is not None and getattr(self.overlong_buffer_cfg, "enable", False):
                 overlong_buffer_len = self.overlong_buffer_cfg.len
                 expected_len = self.max_resp_len - overlong_buffer_len
                 exceed_len = valid_response_length - expected_len

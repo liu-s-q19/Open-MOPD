@@ -4,6 +4,7 @@ import pickle
 import sys
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -277,6 +278,96 @@ def test_naive_reward_manager_can_skip_opd_diagnostic_rule_scoring():
 
     assert result["reward_tensor"] is rm_scores
     assert result["reward_extra_info"] == {"inline_acc": data.non_tensor_batch["inline_acc"]}
+
+
+def test_naive_reward_manager_aligns_mixed_validation_score_fields_with_rm_scores():
+    from verl.workers.reward_manager.naive import NaiveRewardManager
+
+    class _Tokenizer:
+        def decode(self, ids, skip_special_tokens=True):  # noqa: ARG002
+            return "response"
+
+    def compute_score(data_source, **kwargs):  # noqa: ARG001
+        if data_source == "math_dapo_boxed":
+            return 0.25
+        if data_source == "codeforces":
+            return {"score": 0.5, "acc": 0.5, "code_only": 1.0}
+        return {"score": 0.75, "acc": 0.75, "if_only": 1.0}
+
+    rm_scores = torch.zeros((3, 2), dtype=torch.float32)
+    data = DataProto(
+        batch=TensorDict(
+            {
+                "prompts": torch.ones((3, 2), dtype=torch.long),
+                "responses": torch.ones((3, 2), dtype=torch.long),
+                "attention_mask": torch.ones((3, 4), dtype=torch.long),
+                "rm_scores": rm_scores,
+            },
+            batch_size=[3],
+        ),
+        non_tensor_batch={
+            "reward_model": np.array(
+                [{"ground_truth": "42"}, {"ground_truth": {}}, {"ground_truth": {}}], dtype=object
+            ),
+            "data_source": np.array(["math_dapo_boxed", "codeforces", "ifeval"], dtype=object),
+            "extra_info": np.array([{}, {}, {}], dtype=object),
+            "inline_acc": np.array([1.0, 0.0, 1.0]),
+        },
+        meta_info={"reward_extra_keys": ["inline_acc"]},
+    )
+    manager = NaiveRewardManager(
+        tokenizer=_Tokenizer(),
+        num_examine=0,
+        compute_score=compute_score,
+    )
+
+    result = manager(data, return_dict=True)
+    extras = result["reward_extra_info"]
+
+    assert result["reward_tensor"] is rm_scores
+    assert len(extras["score"]) == 3
+    assert len(extras["acc"]) == 3
+    assert "code_only" not in extras
+    assert "if_only" not in extras
+    assert extras["inline_acc"] == [1.0, 0.0, 1.0]
+    assert len(extras["true_reward_score"]) == 3
+
+
+def test_naive_reward_manager_does_not_apply_alc_to_scalar_scores():
+    from verl.workers.reward_manager.naive import NaiveRewardManager
+
+    class _Tokenizer:
+        def decode(self, ids, skip_special_tokens=True):  # noqa: ARG002
+            return "response"
+
+    rm_scores = torch.zeros((1, 2), dtype=torch.float32)
+    data = DataProto(
+        batch=TensorDict(
+            {
+                "prompts": torch.ones((1, 2), dtype=torch.long),
+                "responses": torch.ones((1, 2), dtype=torch.long),
+                "attention_mask": torch.ones((1, 4), dtype=torch.long),
+                "rm_scores": rm_scores,
+            },
+            batch_size=[1],
+        ),
+        non_tensor_batch={
+            "reward_model": np.array([{"ground_truth": "42"}], dtype=object),
+            "data_source": np.array(["math_dapo_boxed"], dtype=object),
+            "extra_info": np.array([{}], dtype=object),
+        },
+    )
+    manager = NaiveRewardManager(
+        tokenizer=_Tokenizer(),
+        num_examine=0,
+        compute_score=lambda **kwargs: 1.0,
+        max_resp_len=2,
+        length_cap_cfg=SimpleNamespace(enable=True, breakpoints=[[2, 0.8], [0, 0.0]]),
+    )
+
+    result = manager(data, return_dict=True)
+
+    assert result["reward_extra_info"]["true_reward_score"][0, 1].item() == 1.0
 
 
 def test_official_lcb_metadata_keeps_all_public_private_tests_by_default():

@@ -19,6 +19,9 @@ THINK_BLOCK_RE = re.compile(r"^\s*<think>.*?</think>", re.DOTALL | re.IGNORECASE
 THINK_FORMAT_WEIGHT = 0.2
 ANSWER_WEIGHT = 0.8
 DATA_SOURCE_ALIASES = {
+    # The parquet validation data uses ``codecontests`` while rLLM's reward
+    # implementation names the same family ``code_contests``.
+    "codecontests": "code_contests",
     "livecodebench_v6_openopd": "livecodebench",
     "livecodebench_v5": "livecodebench",
     "livecodebench_v6": "livecodebench",

@@ -65,6 +65,17 @@ def _answer_length_cap(resp_len, max_resp_len, breakpoints):
     return pts[-1][1]
 
 
+def _normalize_score(score: Any) -> dict[str, Any]:
+    """Normalize scalar and structured scorers to a common validation schema."""
+    if isinstance(score, dict):
+        normalized = dict(score)
+        base_score = normalized.get("score", normalized.get("acc", 0.0))
+        normalized.setdefault("score", base_score)
+        normalized.setdefault("acc", base_score)
+        return normalized
+    return {"score": score, "acc": score}
+
+
 @register("naive")
 class NaiveRewardManager(AbstractRewardManager):
     """The reward manager."""
@@ -179,17 +190,15 @@ class NaiveRewardManager(AbstractRewardManager):
             extra_info["num_turns"] = num_turns
             extra_info["rollout_reward_scores"] = rollout_reward_scores
 
-            score = self.compute_score(
+            raw_score = self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
             )
+            score = _normalize_score(raw_score)
 
-            if isinstance(score, dict):
-                reward = score["score"]
-            else:
-                reward = score
+            reward = score["score"]
 
             # Length shaping. Two mutually exclusive schemes:
             #  (1) answer_length_cap (alc): when length_cap_cfg.enable, cap the *answer*
@@ -204,7 +213,7 @@ class NaiveRewardManager(AbstractRewardManager):
             if (
                 self.length_cap_cfg is not None
                 and _cfg_get(self.length_cap_cfg, "enable", False)
-                and isinstance(score, dict)
+                and isinstance(raw_score, dict)
             ):
                 breakpoints = _cfg_get(self.length_cap_cfg, "breakpoints", _ALC_DEFAULT_BREAKPOINTS)
                 answer_score = float(score.get("answer_score", 0.0))
@@ -239,6 +248,28 @@ class NaiveRewardManager(AbstractRewardManager):
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 results = list(executor.map(process_one, range(len(data))))
 
+        # Mixed validation batches can combine scalar math scores with
+        # structured code/IF scores. Keep only score fields present for every
+        # row; ray_trainer requires every extra-info list to stay batch-aligned.
+        common_score_keys: set[str] = set()
+        if results:
+            common_score_keys = set(results[0]["score"])
+            for result in results[1:]:
+                common_score_keys.intersection_update(result["score"])
+
+        # Preserve metadata emitted by inline/async reward paths. These values
+        # are already batch-aligned and must remain aligned with the score
+        # fields below. Do not seed a key that is also emitted by every scorer,
+        # otherwise appending the scorer values would double its length.
+        for key in data.meta_info.get("reward_extra_keys", []):
+            if key in common_score_keys or key not in data.non_tensor_batch:
+                continue
+            values = data.non_tensor_batch[key]
+            if hasattr(values, "tolist"):
+                values = values.tolist()
+            if isinstance(values, (list, tuple)) and len(values) == len(data):
+                reward_extra_info[key].extend(values)
+
         for result in results:
             i = result["index"]
             data_source = result["data_source"]
@@ -252,10 +283,8 @@ class NaiveRewardManager(AbstractRewardManager):
                 reward_extra_info["length_capped"].append(result["length_cap"] < 0.8)
             if result["format_score"] is not None:
                 format_tensor[i] = result["format_score"]
-            if isinstance(score, dict):
-                # Store the information including original reward
-                for key, value in score.items():
-                    reward_extra_info[key].append(value)
+            for key in common_score_keys:
+                reward_extra_info[key].append(score[key])
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -265,18 +294,13 @@ class NaiveRewardManager(AbstractRewardManager):
                 print("[prompt]", result["prompt_str"])
                 print("[response]", result["response_str"])
                 print("[ground_truth]", result["ground_truth"])
-                if isinstance(score, dict):
-                    for key, value in score.items():
-                        print(f"[{key}]", value)
-                else:
-                    print("[score]", score)
+                for key, value in score.items():
+                    print(f"[{key}]", value)
 
         # Caculate the reward using reward_fn first, we want to know true reward scores, but we still use rm_scores for training
         if "rm_scores" in data.batch.keys():
             print(f"Now we are using rm_scores!")
             if return_dict:
-                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
-                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
                 reward_extra_info["true_reward_score"] = reward_tensor
                 if self.enable_format_reward:
                     print("Format mask has been added to reward_extra_info!")

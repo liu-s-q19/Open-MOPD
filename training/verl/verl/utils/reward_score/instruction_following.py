@@ -84,7 +84,8 @@ def _load_registry():
         raise ImportError(
             "Failed to import official verifier package `verifiable_instructions`. "
             "Install the verifiable-instructions repo into the training environment, "
-            f"for example under `{_repo_root() / 'training' / 'third_party' / 'verifiable-instructions'}`."
+            f"for example under `{_repo_root() / 'training' / 'third_party' / 'verifiable-instructions'}`. "
+            f"Original {type(exc).__name__}: {exc}"
         ) from exc
 
     _ensure_nltk_data()
@@ -93,6 +94,25 @@ def _load_registry():
 
 def _parse_kwargs(raw_items: list[str]) -> list[Any]:
     return [json.loads(item) for item in raw_items]
+
+
+def _normalize_checker_kwargs(instruction_id: str, kwargs: Any) -> Any:
+    """Normalize known dataset/verifier representation differences.
+
+    Nemotron IF-RL stores the two count-increment keywords as singleton lists,
+    while the official checker expects each keyword to be a string and calls
+    .strip() on it. Keep list-valued fields such as forbidden_words unchanged
+    because those are the intended verifier API.
+    """
+    if not isinstance(kwargs, Mapping) or instruction_id != "count:count_increment_word":
+        return kwargs
+
+    normalized = dict(kwargs)
+    for key in ("keyword1", "keyword2"):
+        value = normalized.get(key)
+        if isinstance(value, (list, tuple)) and len(value) == 1:
+            normalized[key] = value[0]
+    return normalized
 
 
 def strip_think_tags(text: str) -> str:
@@ -284,15 +304,18 @@ def _evaluate_constraints(
     failed_constraints: list[str] = []
     checker_errors: list[str] = []
     for instruction_id, kwargs in zip(instruction_ids, kwargs_list, strict=True):
-        instruction_cls = registry.INSTRUCTION_DICT[instruction_id]
-        instruction = instruction_cls(instruction_id)
-        kwargs = kwargs or {}
-        filtered_kwargs = {key: value for key, value in kwargs.items() if value is not None}
-        instruction.build_description(**filtered_kwargs)
         try:
+            instruction_cls = registry.INSTRUCTION_DICT[instruction_id]
+            instruction = instruction_cls(instruction_id)
+            kwargs = _normalize_checker_kwargs(instruction_id, kwargs or {})
+            if not isinstance(kwargs, Mapping):
+                raise TypeError(f"instruction kwargs must be a mapping, got {type(kwargs).__name__}")
+            filtered_kwargs = {key: value for key, value in kwargs.items() if value is not None}
+            instruction.build_description(**filtered_kwargs)
             passed = bool(instruction.check_following(solution_str))
         except Exception as exc:
-            # Some upstream checkers assume non-empty responses; fail closed for RL sampling.
+            # Some upstream checkers assume valid kwargs/non-empty responses;
+            # fail closed for RL sampling instead of killing the whole worker.
             passed = False
             checker_errors.append(f"{instruction_id}:{type(exc).__name__}")
         checks.append(1.0 if passed else 0.0)

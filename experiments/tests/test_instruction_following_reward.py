@@ -90,6 +90,22 @@ def test_checker_exception_fails_closed_for_empty_answer() -> None:
     assert result["checker_errors_text"] == "last_word:last_word_answer:IndexError"
 
 
+def test_count_increment_accepts_singleton_keyword_lists() -> None:
+    result = compute_score(
+        f"{EXACT_THINK_PREFIX}\nhelp dump dump",
+        "",
+        extra_info={
+            "instruction_id_list": ["count:count_increment_word"],
+            "instruction_kwargs_json": ['{"keyword1": ["help"], "keyword2": ["dump"]}'],
+            "family": "other",
+            "raw_prompt": "Include help once and dump twice.",
+        },
+    )
+
+    assert result["base_score"] == 1.0
+    assert result["num_checker_errors"] == 0
+
+
 def test_guard_only_variant_uses_passive_semantic_guard_only() -> None:
     score, penalty = _apply_semantic_guard(
         1.0,

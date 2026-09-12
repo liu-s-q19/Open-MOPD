@@ -45,7 +45,15 @@ def default_compute_score(
         from . import gsm8k
 
         res = gsm8k.compute_score(solution_str, ground_truth)
-    elif data_source in ["lighteval/MATH", "DigitalLearningGmbH/MATH-lighteval", "HuggingFaceH4/MATH-500"]:
+    elif data_source in [
+        "lighteval/MATH",
+        "DigitalLearningGmbH/MATH-lighteval",
+        "HuggingFaceH4/MATH-500",
+        # This validation family explicitly asks for a final \\boxed{} answer.
+        # It must use math_reward rather than math_dapo, whose default parser
+        # expects an ``Answer: ...`` line.
+        "math_dapo_boxed",
+    ]:
         from . import math_reward
 
         res = math_reward.compute_score(solution_str, ground_truth)
@@ -81,11 +89,23 @@ def default_compute_score(
                 sandbox_fusion_url, concurrent_semaphore, memory_limit_mb, solution_str, ground_truth, continuous=True
             )
         else:
-            # If no sandbox URL is provided, fall back to prime_code or raise error
-            from . import prime_code
+            # The historical prime_code scorer imports ``pyext``, which is not
+            # compatible with the project's Python 3.12 environment. Keep it
+            # when available for compatibility, but use the vendored rLLM
+            # scorer (which has its own Python-3.12-compatible RuntimeModule)
+            # when pyext is absent.
+            try:
+                from . import prime_code
+            except ModuleNotFoundError as exc:
+                if exc.name != "pyext":
+                    raise
+                from . import rllm_code_reward
 
-            # Assuming prime_code doesn't need the URL
-            res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+                res = rllm_code_reward.compute_score(
+                    data_source, solution_str, ground_truth, scoring_mode="rllm"
+                )
+            else:
+                res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     elif data_source in ["hiyouga/geometry3k"]:
         from . import geo3k
 
