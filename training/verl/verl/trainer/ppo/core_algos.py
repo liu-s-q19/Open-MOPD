@@ -1244,11 +1244,15 @@ def compute_policy_loss_vanilla(
             # KL: Sum over K, then masked mean
             ppo_kl = verl_F.masked_mean(-negative_approx_kl.sum(dim=-1), response_mask)
             
-            # Clipfrac: Need to broadcast mask to 3D for correct calculation
-            # mask: (B, T) -> (B, T, 1) broadcastable to (B, T, K)
-            mask_3d = response_mask.unsqueeze(-1)
+            # Clipfrac: expand the mask to the actual 3D top-k shape.  A
+            # broadcastable [B, T, 1] mask is sufficient for masked_sum, but
+            # masked_mean uses mask.sum() as its denominator.  Leaving the K
+            # dimension implicit therefore inflated the logged fraction by K.
+            mask_3d = response_mask.unsqueeze(-1).expand_as(pg_losses2)
             pg_clipfrac = verl_F.masked_mean((pg_losses2 > pg_losses1).float(), mask_3d)
-            pg_clipfrac_lower = torch.tensor(0.0, device=log_prob.device) # Placeholder
+            pg_clipfrac_lower = verl_F.masked_mean(
+                torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(), mask_3d
+            )
     else:
         # Standard 2D case
         negative_approx_kl = log_prob - old_log_prob
