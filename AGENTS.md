@@ -81,7 +81,7 @@ python -c 'import verl; print(verl.__file__)'
 
 ## Launcher 使用规范
 
-所有本地 launcher 默认只打印命令，不执行任务。先用 dry-run 检查路径、GPU 数量、teacher/domain 数量和 `PYTHONPATH`，确认后才显式追加 `--run`。
+除用户明确指定的自适应 vanilla MT-OPD launcher 外，所有本地 launcher 默认只打印命令，不执行任务。`scripts/local/mopd/vanilla_mopd.sh` 默认执行训练，使用 `--dry-run` 检查路径、GPU 数量、teacher/domain 数量和 `PYTHONPATH`。
 
 常用入口：
 
@@ -89,14 +89,14 @@ python -c 'import verl; print(verl.__file__)'
 bash scripts/local/sft.sh --help
 bash scripts/local/rl.sh --help
 bash scripts/local/opd.sh --help
-bash scripts/local/mt_opd.sh --help
+bash scripts/local/mopd/vanilla_mopd_local.sh --help
 bash scripts/local/eval.sh --help
 ```
 
 多教师 launcher 必须使 teacher 路径和 domain 列表一一对应，例如：
 
 ```bash
-bash scripts/local/mt_opd.sh \
+bash scripts/local/mopd/vanilla_mopd_local.sh \
   --model /path/to/mixsft \
   --teacher /path/to/math-teacher \
   --teacher /path/to/code-teacher \

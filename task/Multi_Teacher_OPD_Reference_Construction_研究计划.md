@@ -525,6 +525,68 @@ fan-out-all 会使每个 prefix 至少访问 $K$ 个 teacher，teacher inference
 
 另外，teacher 和 student 必须共享 tokenizer 与 vocabulary，或者额外实现 token 对齐；upstream verl 的文档明确以同一 tokenizer/vocabulary 作为常规假设。本项目首选 Open-MOPD 的同源模型族，暂不引入异构 tokenizer 对齐问题。
 
+### 6.9 当前复现路线：Qwen3 基线、Open-MOPD 与 D³-MOPD
+
+当前阶段先解决“训练链路和比较基线是否可信”，再进入 reference-construction 算法创新。推荐顺序为：
+
+~~~text
+Qwen3 普通 MOPD
+    -> Open-MOPD 精确复现
+    -> D³-MOPD 风格动态 domain scheduling
+    -> 自定义 reference construction / adaptive operator
+~~~
+
+这里的三类实验不能混为一个实验：
+
+| 实验 | student / teacher | 训练数据与目标 | 复现含义 |
+|---|---|---|---|
+| Qwen3 普通 MOPD | Qwen3-4B student；现有 Qwen3 Math/Code teacher，补充同源 IF teacher | G-OPD 风格 Math/Code/IF prompt pool；固定 domain ratio 或 matched route | 验证本地 Qwen3 训练、reward、tokenizer 和多教师接口 |
+| Open-MOPD 精确复现 | SmolLM3-3B MixSFT student；官方 SmolLM3-3B Math/Code/IF teacher | `Open-MOPD-Data` 与官方评测协议 | 复现 Open-MOPD 的模型、数据和报告结果；不能替换成 Qwen3 后仍称为精确复现 |
+| D³-MOPD 风格复现 | Qwen3-4B 或 Qwen3.5-4B student；同 backbone 的 Math/Code/IF teacher，可选 Tool-use teacher | 每域规模接近、带 domain tag 的 prompt pool；固定 mixture 对比动态 mixture | 验证 D³ 的调度思想能否迁移到当前 verl/Open-MOPD 栈 |
+| D³-MOPD 规模复现 | Qwen3.6-35B-A3B student；四个同 backbone domain expert | Math、Code、IF、Tool-use 四域，约 4k prompts/domain | 需要重新准备同源 teachers 和大规模基础设施，不是当前两张 GPU 的首轮实验 |
+
+Qwen3-4B 应作为第一主线，因为现有 Math/Code teacher 可以复用，当前只需要补充 IF teacher。Qwen3.6-35B-A3B 只能作为后续规模实验：它要求重新训练或取得 Qwen3.6 同源 teachers，且论文主实验使用 7 个 GPU 节点。D³-MOPD 的 4B 附录支持小模型迁移，但不能证明 Qwen3-4B 与 Qwen3.5-4B 完全等价。
+
+Open-MOPD 是主开发库，G-OPD 只作为 Qwen3 baseline 的数据、teacher 和 launcher 参考，D³-MOPD 作为调度算法的论文规范。不要把 D³ 的 slime/Megatron/SGLang 训练栈整体移植进来：D³ 的核心变化是读取每域 reverse-KL 的 remaining gap 与 descent velocity，然后更新下一批的 domain quota；当前 Open-MOPD 已有固定 domain sampler 和 `AbstractCurriculumSampler` 更新接口，足以承载这一变化。
+
+复现难度应分开记录：
+
+- **Qwen3 普通 MOPD：中等偏低。** G-OPD 已有 Qwen3 launcher 和数据，但必须核对 `only_reverse_kl_advantages`、`lambda_vals`、thinking mode、reward manager 以及多 teacher 的实际路由语义。
+- **Open-MOPD 精确复现：中等。** 官方模型和数据链路完整，但它是 SmolLM3 同源配置，不能直接用 Qwen3 teacher 替代；本地 patched verl 仍需通过 dry-run 和最小 smoke test 验证。
+- **D³-MOPD 算法复现：中等。** 算法层面主要新增 scheduler、KL history、domain quota 和日志；精确论文复现则较难，因为论文使用 slime、异步 teacher prefill、7 节点基础设施，公开原文主要提供 recipe 而非可直接运行的完整代码。
+
+第一版 D³-style scheduler 必须保持以下变量不变：student、teacher、tokenizer、thinking mode、OPD loss、response budget、总 prompt/rollout budget、验证集和随机种子。只改变 fixed mixture 与 online-updated mixture，才能把收益归因于调度。
+
+### 6.10 当前 IF 数据与评测资产
+
+截至 2026-09-10，`scripts/local/if_grpo_32gpu.sh` 所需的 IF 数据已经下载并完成 Open-MOPD schema 转换。默认数据根目录为：
+
+```text
+/nfs/dataset-ofs-nmgvoyagermodel-prediction/rl_lab/liushiqi/llm/dataset
+```
+
+原始下载源和当前 launcher 使用的路径如下：
+
+| 用途 | 数据源 | launcher 默认路径 | 当前规模 |
+|---|---|---|---:|
+| IF-GRPO 训练 | `nvidia/Nemotron-RL-instruction_following` | `train/instruction_following.jsonl` | 46,391 条 |
+| IFEval 对齐评测 | `BytedTsinghua-SIA/Open-MOPD-Data` 的 `eval/if/ifeval_aligned.parquet` | `eval/ifeval_aligned.parquet` | 541 条 |
+| IFBench 对齐评测 | `BytedTsinghua-SIA/Open-MOPD-Data` 的 `eval/if/ifbench_test_aligned.parquet` | `eval/ifbench_test_aligned.parquet` | 300 条 |
+
+数据构建脚本 `training/scripts/rl/build_if_grpo_data.py` 已生成：
+
+```text
+if_grpo/nemotron_if_rl_train.parquet   # 46,391 条训练数据
+if_grpo/ifeval_only.parquet             # 541 条验证数据
+if_grpo/if_eval.parquet                 # 841 条验证数据：IFEval 541 + IFBench 300
+```
+
+当前 launcher 的默认行为是 `INCLUDE_IFBENCH_VAL=auto`：当当前环境没有 `OPENOPD_IFBENCH_REPO` 时，只使用 `ifeval_only.parquet`；即使 IFBench 对齐 parquet 已经下载，也不能据此完成官方 IFBench reward 评测。要使用合并验证集，需在具备 IFBench evaluator checkout 的环境中设置 `OPENOPD_IFBENCH_REPO` 并传入 `--include-ifbench`。本机当前 shell 未设置该变量，因此后续默认 smoke test 应按 IFEval-only 记录，不能把它写成 IFEval+IFBench 结果。
+
+IF reward 依赖已随仓库准备在 `training/third_party/verifiable-instructions`，launcher 的 preflight 会检查 instruction registry 和 `<think>\n</think>` 输出前缀；训练使用 patched verl 的 instruction-following reward、`dapo` reward manager 和 `tiered_think_format` scoring mode。数据和派生 summary 中应保留 seed、输入路径、验证集组成和行数，作为 Phase 0 manifest 的一部分。
+
+需要区分实验含义：`if_grpo_32gpu.sh` 调用的是 `verl.trainer.main_ppo` 的 GRPO 配置（无 teacher query、无 teacher logits、无 OPD reference），因此它可以作为 IF domain 的数据/reward/训练链路 baseline 和 smoke test，但不能作为 multi-teacher reference-construction 的实验结果。进入 Phase 1--3 前仍需准备或确认同源 Qwen3 IF teacher，并在固定 student rollout 上执行 Math/Code/IF teacher fan-out。
+
 ---
 
 ## 7. 方法设计
@@ -943,7 +1005,7 @@ $$
 
 为了保持主线清晰，第一版暂不同时研究：
 
-- domain sampling schedule；
+- 将 domain sampling schedule 作为最终 reference-construction 主创新；但在基线复现阶段，必须单独实现和评估 D³-style dynamic scheduling，作为受控的外部调度变量；
 - token budget allocation；
 - reward refresh strategy；
 - gradient surgery；
@@ -958,71 +1020,100 @@ $$
 
 ## 14. 时间安排与阶段产出
 
-### 第 1 周：数学与实现校验
+当前执行计划优先采用“先基线、再复现、后创新”的顺序。下面的阶段优先级高于后续 operator-first 的扩展计划；每个阶段都必须先完成最小 smoke test 和配置记录，再考虑扩大规模。
+
+### 阶段 0：环境、数据和配置清点
+
+目标：保证不同代码库的结果可以比较。
 
 产出：
 
-- operator definitions；
-- Proposition 及证明；
-- toy distribution notebook；
-- geometric / arithmetic target 可视化。
+- 模型、teacher、数据和评测文件的 manifest；
+- IF 数据 manifest：46,391 条训练样本、541 条 IFEval、300 条 IFBench，以及对应的 46,391/541/841 条派生 parquet；
+- 明确记录当前 launcher 默认采用 IFEval-only，IFBench 仅在 evaluator checkout 可用时纳入；
+- tokenizer、chat template、thinking mode 和 vocabulary 检查；
+- G-OPD、Open-MOPD launcher 的 dry-run 输出；
+- Python、patched verl、Torch、vLLM、SGLang、Ray 版本记录；
+- 每个实验的 git commit、seed、batch、sequence length、teacher 顺序和输出目录。
 
-### 第 2 周：MOPD 数据和教师矩阵
+### 阶段 1：Qwen3 普通 MOPD baseline
 
-产出：
+目标：先确认 Qwen3 训练链路本身可靠，而不是先引入新的 scheduler 或 reference operator。
 
-- teacher-domain competence matrix；
-- sample-level best-teacher statistics；
-- verifier pipeline；
-- fixed rollout subset。
+推荐设置：
 
-### 第 3 周：distribution profiling
-
-产出：
-
-- teacher disagreement map；
-- $D_{\mathrm{inc}}$ 分布；
-- correctness-disagreement joint analysis；
-- top-$k$ approximation validation。
-
-### 第 4 至 5 周：controlled operator comparison
+```text
+Qwen3-4B student
+Qwen3-4B Math/Code teachers
+Qwen3-4B IF teacher（checkpoint 待确认；IF 数据与 reward 已就绪）
+non-thinking mode
+固定 domain ratio，先 1:1 或 1:1:1
+标准 per-token reverse-KL / G-OPD loss
+```
 
 产出：
 
-- route / mixture / consensus / oracle baseline；
-- 多随机种子训练结果；
-- domain-wise 和 bucket-wise evaluation；
-- compute cost comparison。
+- Math、Code、IF 分域验证结果；
+- IF 域优先报告 IFEval 541 条；IFBench 300 条只有在 evaluator checkout 可用并显式启用后才报告；
+- per-domain prompt share、response-token share 和 loss share；
+- teacher-student reverse-KL 曲线；
+- 单 teacher、固定 route 和固定三域 MOPD 的可复现 checkpoint。
 
-### 第 6 周：adaptive selector
+这一阶段不使用 D³ scheduler，也不同时比较 arithmetic/geometric reference，避免把基础训练问题误判为算法收益。
 
-产出：
+### 阶段 2：Open-MOPD 精确复现
 
-- calibration split；
-- rule-based selector；
-- learned shallow selector；
-- selector regret analysis。
+目标：在官方 SmolLM3 配置上验证 Open-MOPD 的公开结果链路。
 
-### 第 7 周：稳健性与消融
+设置必须尽量遵循官方 recipe：MixSFT student、官方 Math/Code/IF RL teacher、`Open-MOPD-Data`、官方评测集和 thinking mode。Qwen3 实验可以作为本地工程 baseline，但不能替代该阶段的精确复现。
 
 产出：
 
-- 不同教师数量；
-- 不同权重；
-- 不同 student checkpoint；
-- 不同 top-$k$；
-- 不同 verifier threshold；
-- sequence-level versus token-level routing。
+- 官方模型和数据的版本记录；
+- MixSFT、三个 domain teacher 和最终 MOPD 的配置表；
+- math/code/IF 分域结果及 overall macro average；
+- 与官方报告的差异、失败原因和可接受误差范围。
 
-### 第 8 周：论文整理
+### 阶段 3：D³-MOPD 风格复现
 
-产出：
+目标：在 Open-MOPD/patched verl 中只加入动态 domain scheduling，复现 D³ 的算法效应。
 
-- method section；
-- theory section；
-- experiment section；
-- limitations；
-- reproducibility checklist。
+先使用 Qwen3-4B 三域设置，不强行复现 Qwen3.6-35B-A3B 的模型规模。每一步同时记录每个 domain 的 reverse-KL，并实现：
+
+1. fixed mixture baseline；
+2. remaining-KL gap；
+3. smoothed descent velocity；
+4. gap 与 velocity 的 composite signal；
+5. softmax temperature、domain floor 和 batch-level jitter；
+6. 动态 quota 的实际 prompt/token share。
+
+验收标准：固定 mixture 与动态 mixture 的 student、teacher、loss、总 rollout budget 和评测协议一致；D³ scheduler 的变化只体现在 domain sampling ratio。
+
+### 阶段 4：Qwen3.6-35B-A3B 可行性与规模实验
+
+只有阶段 1--3 的小规模结果稳定后才启动。该阶段需要重新准备 Qwen3.6 同源的 Math、Code、IF teacher；若目标是完整 D³ 对齐，还需要 Tool-use teacher 及对应数据。当前两张 GPU 只做模型加载、tokenizer、单 batch 或短时 profiling，不启动论文规模训练。
+
+### 阶段 5：提出自己的 reference-construction 算法
+
+只有在普通 MOPD、Open-MOPD 和 D³-style scheduling 都有可比较结果后，才进入本项目原定的 operator 研究：
+
+```text
+固定 scheduler
+    -> hard route / arithmetic mixture / geometric consensus
+    -> disagreement + reliability profiling
+    -> 自定义 adaptive reference construction
+```
+
+新算法的第一版必须与 D³ scheduler 解耦。默认先固定 domain ratio，再研究 reference operator；之后再做“固定 operator 下的 scheduler”与“固定 scheduler 下的 operator”双向消融。
+
+### 阶段 6：长期 operator 研究
+
+在上述复现链路通过后，继续执行 Phase 0--5 的 toy verification、competence matrix、distribution profiling、controlled comparison、bucket evaluation 和 adaptive selector。最终报告必须区分：
+
+- G-OPD / 普通 MOPD 的 loss 与 teacher routing；
+- Open-MOPD 的模型、数据和 domain balancing；
+- D³-MOPD 的动态 sampling；
+- 本项目自己的 reference-construction operator。
 
 ---
 

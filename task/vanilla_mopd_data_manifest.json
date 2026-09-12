@@ -1,0 +1,37 @@
+{
+  "experiment": "vanilla_mopd_if_as_math",
+  "train": {
+    "path": "/nfs/dataset-ofs-nmgvoyagermodel-prediction/rl_lab/liushiqi/llm/dataset/open_mopd/vanilla_mopd_4k/train.parquet",
+    "manifest": "/nfs/dataset-ofs-nmgvoyagermodel-prediction/rl_lab/liushiqi/llm/dataset/open_mopd/vanilla_mopd_4k/train.manifest.json",
+    "rows": 12000,
+    "rows_per_domain": {
+      "math": 4000,
+      "code": 4000,
+      "if": 4000
+    },
+    "seed": 20260718
+  },
+  "validation": [
+    {
+      "domain": "math",
+      "path": "/nfs/dataset-ofs-prediction/rl_lab/liushiqi/llm/huggingface/datasets/AIME24/aime-2024-change_box.parquet",
+      "rows": 960
+    },
+    {
+      "domain": "code",
+      "path": "/nfs/dataset-ofs-prediction/rl_lab/liushiqi/llm/huggingface/datasets/Keven16/G-OPD-Training-Data-ours-math-author-code-pm1/Eurus/code_validation.parquet",
+      "rows": 1024
+    },
+    {
+      "domain": "if",
+      "path": "/nfs/dataset-ofs-nmgvoyagermodel-prediction/rl_lab/liushiqi/llm/dataset/if_grpo/ifeval_only.parquet",
+      "rows": 541
+    }
+  ],
+  "teacher_mapping": {
+    "math": "Qwen3-4B-Non-Thinking-RL-Math-Step500",
+    "code": "Qwen3-4B-Non-Thinking-RL-Code-Step300",
+    "if": "Qwen3-4B-Non-Thinking-RL-Math-Step500"
+  },
+  "note": "The IF teacher slot is temporarily replaced by the Math teacher; this is not a true three-teacher quality comparison."
+}

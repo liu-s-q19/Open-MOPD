@@ -6,7 +6,7 @@
 bash scripts/local/sft.sh --help
 bash scripts/local/rl.sh --help
 bash scripts/local/opd.sh --help
-bash scripts/local/mt_opd.sh --help
+bash scripts/local/mopd/vanilla_mopd_local.sh --help
 bash scripts/local/eval.sh --help
 ```
 

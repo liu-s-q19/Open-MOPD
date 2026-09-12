@@ -103,7 +103,7 @@ The local launchers print the generated command without executing it. The
 following command previews an Open-MOPD training run:
 
 ```bash
-bash scripts/local/mt_opd.sh \
+bash scripts/local/mopd/vanilla_mopd_local.sh \
   --model /path/to/mixsft \
   --teacher /path/to/math-teacher \
   --teacher /path/to/code-teacher \
